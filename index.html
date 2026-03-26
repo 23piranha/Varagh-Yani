@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<title>🃏 Yaniv</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:linear-gradient(160deg,#071221 0%,#0d2442 55%,#071221 100%);color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif}
+#app{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 8px 32px;min-height:100vh}
+.card{display:inline-flex;flex-direction:column;align-items:center;justify-content:space-between;padding:2px 3px;border-radius:6px;flex-shrink:0;user-select:none;background:#fff;border:1.5px solid #d1d5db;box-shadow:0 1px 4px rgba(0,0,0,0.2);transition:transform .15s,box-shadow .15s}
+.card.sel{transform:translateY(-10px);box-shadow:0 6px 18px rgba(245,158,11,0.45);background:#fef3c7;border:2.5px solid #f59e0b}
+.card.tap{cursor:pointer}
+.card.down{background:linear-gradient(135deg,#1a3a6b,#0d2340)!important;border:2px solid #2563eb!important;align-items:center;justify-content:center}
+.panel{background:#0b1e36;border-radius:11px;padding:10px 12px;border:1px solid #1e3a5f;width:100%;max-width:580px}
+.row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:flex-end;min-height:72px;padding-bottom:4px}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#0f2744;border-radius:14px;padding:24px;max-width:500px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,0.6)}
+.btn{padding:10px 22px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;transition:all .2s;white-space:nowrap}
+.bb{background:#1d4ed8;color:#fff;box-shadow:0 3px 14px rgba(29,78,216,0.4)}
+.ba{background:linear-gradient(135deg,#d97706,#b45309);color:#fff;box-shadow:0 3px 14px rgba(217,119,6,0.4)}
+.bd{background:#1c2c3d;color:#4b5563;cursor:not-allowed}
+.flash{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#0f2744;border:1px solid #3b82f6;border-radius:10px;padding:9px 20px;font-size:14px;font-weight:600;z-index:300;box-shadow:0 4px 20px rgba(0,0,0,0.5);white-space:nowrap;pointer-events:none}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#0a1929}::-webkit-scrollbar-thumb{background:#2563eb;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ── CONSTANTS ──────────────────────────────────────────────────────────────
+const SUITS=['♠','♥','♦','♣'],VALS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const isRed=s=>s==='♥'||s==='♦';
+const cv=c=>c.jk?0:({A:1,J:11,Q:12,K:13}[c.v]??+c.v);
+const hs=h=>h.reduce((s,c)=>s+cv(c),0);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+// ── GAME LOGIC ─────────────────────────────────────────────────────────────
+function mkDeck(){
+  const d=SUITS.flatMap(s=>VALS.map(v=>({s,v,jk:false,id:v+s})));
+  d.push({s:'',v:'JK',jk:true,id:'J1'},{s:'',v:'JK',jk:true,id:'J2'});
+  return d;
+}
+function shuf(a){
+  const b=[...a];
+  for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]];}
+  return b;
+}
+function validDiscard(cards){
+  if(!cards.length)return false;
+  if(cards.length===1)return true;
+  const nj=cards.filter(c=>!c.jk),jn=cards.length-nj.length;
+  if(!nj.length)return true;
+  if(nj.every(c=>c.v===nj[0].v))return true;
+  if(cards.length>=3){
+    const us=[...new Set(nj.map(c=>c.s))];
+    if(us.length===1){
+      const ids=nj.map(c=>VALS.indexOf(c.v)).sort((a,b)=>a-b);
+      const span=ids[ids.length-1]-ids[0],gaps=span-(nj.length-1);
+      if(gaps<=jn&&span+1<=cards.length)return true;
+    }
+  }
+  return false;
+}
+function bestAI(hand){
+  let best=null,bv=-1;
+  for(let m=1;m<(1<<hand.length);m++){
+    const idx=[],cs=[];
+    for(let i=0;i<hand.length;i++)if((m>>i)&1){idx.push(i);cs.push(hand[i]);}
+    if(idx.length>5||!validDiscard(cs))continue;
+    const v=cs.reduce((s,c)=>s+cv(c),0);
+    if(v>bv){bv=v;best=idx;}
+  }
+  return best??[hand.reduce((bi,c,i)=>cv(c)>cv(hand[bi])?i:bi,0)];
+}
+function aiReason(hand,idx){
+  const cs=idx.map(i=>hand[i]),rem=hand.filter((_,i)=>!idx.includes(i));
+  const lost=cs.reduce((s,c)=>s+cv(c),0);
+  const desc=cs.length>2?'a set/run':cs.length===2?`a pair of ${cs[0].jk?'Jokers':cs[0].v+'s'}`:`${cs[0].jk?'Joker':`${cs[0].v}${cs[0].s}`}`;
+  return `Discarding ${desc} (−${lost} pts). Hand now: ${hs(rem)} pts.`;
+}
+function getTip(hand,top,phase){
+  const sum=hs(hand);
+  if(phase==='p_draw')return"🃏 You've discarded — now draw from the deck or grab the top discard.";
+  if(phase==='ai_turn')return"⏳ Waiting for AI players. Watch their reasoning bubbles!";
+  if(sum<=5)return"🔥 Extremely low! Click 📣 Yaniv! to end the round before someone beats you!";
+  if(sum<=7)return"✅ You can call Yaniv now! Hit 📣 Yaniv! — watch out for opponents who might tie or beat you.";
+  const pairs={};hand.filter(c=>!c.jk).forEach(c=>pairs[c.v]=(pairs[c.v]||0)+1);
+  if(Object.values(pairs).some(v=>v>=2))return"💡 You have a pair or set — discard it to drop multiple points at once!";
+  if(hand.some(c=>c.jk))return"🃏 Keep your Joker (0 pts) — it keeps your total low without cost.";
+  const hi=hand.filter(c=>cv(c)>=11);
+  if(hi.length)return`⚠️ Discard face cards first — ${hi.map(c=>c.v).join('+')} = ${hi.reduce((s,c)=>s+cv(c),0)} pts hurting your total.`;
+  if(top&&cv(top)<=2)return`👀 Top discard is ${top.jk?'Joker':`${top.v}${top.s}`} (${cv(top)} pt) — grabbing it could help!`;
+  return"🎯 Discard your highest cards each turn. Get to 7 or under to call Yaniv.";
+}
+function calcScores(prev,sums,winner,assafCaller){
+  const next={};
+  ['player','ai1','ai2'].forEach(p=>{
+    if(p===winner){next[p]=prev[p];return;}
+    let ns=prev[p]+sums[p]+(p===assafCaller?30:0);
+    if(ns===50||ns===100)ns=25;
+    next[p]=ns;
+  });
+  return next;
+}
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let G=null,sel=[],showRules=false,flashMsg='',flashTid=null,aiTid=null;
+
+function deal(scores={player:0,ai1:0,ai2:0},round=1){
+  if(aiTid){clearTimeout(aiTid);aiTid=null;}
+  const deck=shuf(mkDeck());
+  const ph=deck.splice(0,5),a1=deck.splice(0,5),a2=deck.splice(0,5),top=deck.splice(0,1)[0];
+  G={deck,pile:[top],discTop:[top],hands:{player:ph,ai1:a1,ai2:a2},scores,round,
+    prevDiscard:[top],drawable:null,phase:'p_discard',aiTurn:'ai1',
+    aiLog:{ai1:'',ai2:''},result:null,
+    log:['🎴 New round! Select cards to discard, or call Yaniv if ≤ 7.']};
+  sel=[];
+}
+function notify(msg){
+  if(flashTid)clearTimeout(flashTid);
+  flashMsg=msg; render();
+  flashTid=setTimeout(()=>{flashMsg='';render();},2800);
+}
+
+// ── CARD HTML ──────────────────────────────────────────────────────────────
+function cardH(c,isSel,tapIdx,down,sm){
+  const w=sm?36:52,h=sm?52:72,fs=sm?9:12,mfs=sm?14:20;
+  if(down)return`<div class="card down" style="width:${w}px;height:${h}px;font-size:${mfs}px;color:#93c5fd">🂠</div>`;
+  const color=c.jk?'#7c3aed':isRed(c.s)?'#dc2626':'#111827';
+  const lbl=c.jk?'★':esc(c.v),suit=c.jk?'🃏':esc(c.s);
+  const tap=tapIdx!==false?` tap" data-action="tog" data-i="${tapIdx}`:'"';
+  return`<div class="card${isSel?' sel':''}${tap=== '"'?'"':''} style="width:${w}px;height:${h}px;font-size:${fs}px;color:${color}"${tapIdx!==false?` data-action="tog" data-i="${tapIdx}"`:''}>
+    <span style="align-self:flex-start;font-weight:700;line-height:1">${lbl}</span>
+    <span style="font-size:${mfs}px">${suit}</span>
+    <span style="align-self:flex-end;font-weight:700;line-height:1;transform:rotate(180deg)">${lbl}</span>
+  </div>`;
+}
+
+// ── RULES ──────────────────────────────────────────────────────────────────
+const RULES=[
+  ['🎯 Objective','Have the lowest point total when Yaniv is called. Call "Yaniv" when your hand total is 7 or less.'],
+  ['🃏 Card Values','Ace = 1 · 2–10 = face value · Jack = 11 · Queen = 12 · King = 13 · Joker = 0'],
+  ['🔄 Your Turn','① Select & discard a valid set. ② Draw one card from the deck OR the top of the discard pile (not what you just discarded).'],
+  ['✅ Valid Discards','Single card · Pair · Three/Four of a kind · Run of 3+ same-suit consecutive cards. Jokers are wildcards.'],
+  ['📣 Yaniv!','Instead of discarding, call Yaniv when your total is ≤ 7. If no opponent has a total equal to or lower → you win the round!'],
+  ['😬 Assaf!','If you call Yaniv but an opponent has a total ≤ yours → they win; you get +30 penalty on top of your hand total.'],
+  ['📊 Scoring','Losers add their hand total to their cumulative score. Hitting exactly 50 or 100 resets you to 25. Reach 200 and you\'re eliminated.'],
+  ['💡 Strategy','Discard face cards first. Pairs/sets drop more points per turn. Watch what the AI draws — it hints at their hand size.'],
+];
+
+// ── RENDER ─────────────────────────────────────────────────────────────────
+function render(){
+  if(!G)return;
+  const pSum=hs(G.hands.player);
+  const canY=pSum<=7&&G.phase==='p_discard';
+  const selC=sel.map(i=>G.hands.player[i]);
+  const selOK=sel.length>0&&validDiscard(selC);
+  const canD=G.phase==='p_discard'&&selOK;
+  const tip=getTip(G.hands.player,G.drawable?.[0]??G.prevDiscard?.[0]??null,G.phase);
+  const isOver=G.result&&Object.values(G.result.ns).some(s=>s>=200);
+  const sc=s=>s>=150?'#f87171':s>=100?'#fb923c':s>=50?'#fbbf24':'#86efac';
+
+  // scores bar
+  const scBar=[['player','You','👤'],['ai1','AI 1','🤖'],['ai2','AI 2','🤖']].map(([k,l,ic])=>{
+    const s=G.scores[k];
+    return`<div style="flex:1;background:#0b1e36;border:1px solid ${k==='player'?'#1d4ed8':'#1e3a5f'};border-radius:9px;padding:8px;text-align:center">
+      <div style="font-size:11px;opacity:.55;margin-bottom:2px">${ic} ${l}</div>
+      <div style="font-size:22px;font-weight:800;line-height:1.1;color:${sc(s)}">${s}</div>
+      <div style="font-size:10px;opacity:.4">pts</div></div>`;
+  }).join('');
+
+  // ai panels
+  const aiPanels=[['ai1','AI 1'],['ai2','AI 2']].map(([k,l])=>{
+    const thinking=G.aiTurn===k&&G.phase==='ai_turn';
+    const cards=G.hands[k].map(c=>G.phase==='round_end'?cardH(c,false,false,false,true):cardH(c,false,false,true,true)).join('');
+    const log=G.aiLog[k]?`<div style="margin-top:7px;font-size:12px;color:#a3e635;background:rgba(163,230,53,0.07);border-radius:6px;padding:5px 9px;border-left:3px solid #84cc16">💭 ${esc(G.aiLog[k])}</div>`:'';
+    return`<div class="panel" style="border-color:${thinking?'#fbbf24':'#1e3a5f'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">🤖 ${l}
+          <span style="opacity:.45;font-weight:400;font-size:12px"> · ${G.hands[k].length} cards${G.phase==='round_end'?` · ${hs(G.hands[k])} pts`:''}</span>
+        </span>
+        ${thinking?'<span style="font-size:12px;color:#fbbf24;font-style:italic">● thinking…</span>':''}
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">${cards}</div>${log}</div>`;
+  }).join('');
+
+  // table
+  const discPile=G.discTop.map(c=>cardH(c,false,false,false,false)).join('');
+  let drawBtns='';
+  if(G.phase==='p_draw'){
+    const hd=G.drawable&&G.drawable.length>0;
+    const dl=hd?` (${G.drawable[0].jk?'🃏':`${G.drawable[0].v}${G.drawable[0].s}`})`:'';
+    drawBtns=`<div style="display:flex;flex-direction:column;gap:6px;min-width:148px">
+      <button data-action="drawDisc" ${!hd?'disabled':''} style="padding:8px 12px;text-align:left;background:${hd?'rgba(37,99,235,0.18)':'rgba(30,42,60,0.4)'};border:1px solid ${hd?'#3b82f6':'#374151'};border-radius:7px;color:${hd?'#93c5fd':'#4b5563'};cursor:${hd?'pointer':'not-allowed'};font-size:12px;font-weight:600">↩ Grab discard${dl}</button>
+      <button data-action="drawDeck" style="padding:8px 12px;text-align:left;background:rgba(5,150,105,0.18);border:1px solid #10b981;border-radius:7px;color:#6ee7b7;cursor:pointer;font-size:12px;font-weight:600">🂠 Draw from deck</button>
+    </div>`;
+  }
+  const table=`<div class="panel" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:100px">
+      <div style="font-size:10px;opacity:.45;margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Discard Pile</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">${discPile}</div></div>
+    <div>
+      <div style="font-size:10px;opacity:.45;margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Deck (${G.deck.length})</div>
+      ${cardH({v:'?',s:'',jk:false,id:'bk'},false,false,true,false)}
+    </div>${drawBtns}</div>`;
+
+  // player hand
+  const handCards=G.hands.player.map((c,i)=>cardH(c,sel.includes(i),G.phase==='p_discard'?i:false,false,false)).join('');
+  const hint=G.phase==='p_discard'&&sel.length>0
+    ?`<div style="text-align:center;font-size:12px;margin-top:6px;color:${selOK?'#86efac':'#f87171'}">${selOK?`✓ Valid discard (${selC.reduce((s,c)=>s+cv(c),0)} pts)`:'✗ Not valid — need single, pair, set, or same-suit run'}</div>`:'';
+  const acts=G.phase==='p_discard'?`<div style="display:flex;gap:8px;margin-top:10px;justify-content:center;flex-wrap:wrap">
+    <button data-action="discard" ${!canD?'disabled':''} class="btn ${canD?'bb':'bd'}">Discard${sel.length?` (${sel.length})`:''}</button>
+    <button data-action="yaniv" ${!canY?'disabled':''} class="btn ${canY?'ba':'bd'}">${canY?`📣 Yaniv! (${pSum} pts)`:`📣 Yaniv (need ≤7, have ${pSum})`}</button>
+  </div>`:'';
+  const phLabel=G.phase==='p_discard'?'Click cards to select':G.phase==='p_draw'?'Now draw a card ↑':'Waiting for AI…';
+  const hBorder=G.phase==='p_discard'?'#2563eb':G.phase==='p_draw'?'#059669':'#1e3a5f';
+  const hand=`<div style="width:100%;max-width:580px;background:#0b1e36;border-radius:12px;padding:12px 14px;border:2px solid ${hBorder}">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div><span style="font-weight:700;font-size:15px">👤 Your Hand</span>
+        <span style="color:#fbbf24;font-size:13px;margin-left:8px;font-weight:700">${pSum} pts</span></div>
+      <span style="font-size:12px;opacity:.55">${phLabel}</span></div>
+    <div class="row">${handCards}</div>${hint}${acts}</div>`;
+
+  // log
+  const logLines=[...G.log].reverse().map((l,i)=>`<div style="font-size:11.5px;opacity:${i===0?1:.5};padding:1.5px 0;border-bottom:1px solid rgba(255,255,255,0.03)">${esc(l)}</div>`).join('');
+  const log=`<div style="width:100%;max-width:580px;background:#060d1a;border-radius:9px;padding:8px 12px;max-height:72px;overflow-y:auto;border:1px solid #1a2f4a">${logLines}</div>`;
+
+  // round end
+  let roundEnd='';
+  if(G.phase==='round_end'&&G.result){
+    const r=G.result;
+    const em=r.winner==='player'?'🎉':r.assafCaller==='player'?'😬':'😔';
+    const title=r.winner==='player'?'You Win the Round!'
+      :r.assafCaller==='player'?`Assaf — ${r.winner==='ai1'?'AI 1':'AI 2'} Wins`
+      :`${r.yanivCaller?`${r.yanivCaller==='ai1'?'AI 1':'AI 2'} calls Yaniv — `:''}${r.winner==='ai1'?'AI 1':'AI 2'} Wins`;
+    const note=r.assafCaller==='player'
+      ?`<div style="font-size:13px;color:#fca5a5;background:rgba(239,68,68,0.1);border-radius:8px;padding:8px 14px;margin-bottom:14px">You called Yaniv with ${r.sums.player} pts, but ${r.winner==='ai1'?'AI 1':'AI 2'} had ${r.sums[r.winner]}. Assaf = hand + 30 penalty!</div>`
+      :r.assafCaller
+      ?`<div style="font-size:13px;color:#86efac;background:rgba(134,239,172,0.08);border-radius:8px;padding:8px 14px;margin-bottom:14px">${r.assafCaller==='ai1'?'AI 1':'AI 2'} got Assafed — you benefited this round!</div>`:'';
+    const rcards=[['player','You'],['ai1','AI 1'],['ai2','AI 2']].map(([k,l])=>`
+      <div style="flex:1;background:#1a3356;border-radius:9px;padding:10px 6px;text-align:center">
+        <div style="font-size:11px;opacity:.55;margin-bottom:2px">${l}</div>
+        <div style="font-size:22px;font-weight:800;color:${sc(r.ns[k])}">${r.ns[k]}</div>
+        <div style="font-size:10px;opacity:.4">pts</div></div>`).join('');
+    const goNote=isOver?`<div style="margin-bottom:14px;font-size:14px;color:#f87171;font-weight:600">${r.ns.player>=200?'You reached 200 — eliminated!':'An AI reached 200 — fresh game!'}</div>`:'';
+    roundEnd=`<div class="overlay">
+      <div style="background:#0f2744;border-radius:16px;padding:28px;max-width:400px;width:100%;text-align:center;border:1px solid #2563eb;box-shadow:0 25px 60px rgba(0,0,0,0.65)">
+        <div style="font-size:56px;margin-bottom:8px">${em}</div>
+        <h2 style="margin:0 0 8px;font-size:22px;color:#fbbf24">${title}</h2>
+        <div style="font-size:13px;opacity:.65;margin-bottom:14px">You: ${r.sums.player} · AI 1: ${r.sums.ai1} · AI 2: ${r.sums.ai2} pts</div>
+        ${note}<div style="display:flex;gap:8px;justify-content:center;margin-bottom:18px">${rcards}</div>
+        ${goNote}
+        <button data-action="next" class="btn bb" style="padding:12px 36px;font-size:15px">${isOver?'🔄 New Game':'Next Round →'}</button>
+      </div></div>`;
+  }
+
+  // rules modal
+  const rulesModal=showRules?`<div class="overlay" data-action="closeR">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 style="margin:0 0 16px;color:#fbbf24;font-size:20px">📖 How to Play Yaniv</h2>
+      ${RULES.map(([t,b])=>`<div style="margin-bottom:13px"><div style="font-weight:700;color:#93c5fd;font-size:13px;margin-bottom:3px">${t}</div><div style="font-size:13px;line-height:1.6;opacity:.9">${b}</div></div>`).join('')}
+      <button data-action="closeR" class="btn bb" style="margin-top:10px">Got it ✓</button>
+    </div></div>`:'';
+
+  document.getElementById('app').innerHTML=`
+    ${rulesModal}
+    ${flashMsg?`<div class="flash">${esc(flashMsg)}</div>`:''}
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;max-width:580px">
+      <div>
+        <h1 style="font-size:24px;font-weight:800;color:#fbbf24;letter-spacing:-.5px">🃏 Yaniv</h1>
+        <div style="font-size:11px;opacity:.45;margin-top:1px">Round ${G.round} · 3-player</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button data-action="openR" style="padding:7px 14px;background:rgba(37,99,235,0.15);border:1px solid #3b82f6;border-radius:7px;color:#93c5fd;cursor:pointer;font-size:12px;font-weight:600">📖 Rules</button>
+        <button data-action="newG" style="padding:7px 14px;background:rgba(107,114,128,0.12);border:1px solid #374151;border-radius:7px;color:#9ca3af;cursor:pointer;font-size:12px">New Game</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;width:100%;max-width:580px">${scBar}</div>
+    ${aiPanels}${table}
+    <div style="width:100%;max-width:580px;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.22);border-radius:9px;padding:9px 14px;font-size:13px;line-height:1.55">
+      <span style="opacity:.45;font-size:10px;margin-right:6px;text-transform:uppercase;letter-spacing:.8px">Strategy</span>${esc(tip)}</div>
+    ${hand}${log}${roundEnd}`;
+
+  if(G.phase==='ai_turn') scheduleAI();
+}
+
+// ── AI TURN ────────────────────────────────────────────────────────────────
+function scheduleAI(){
+  if(aiTid)clearTimeout(aiTid);
+  const ai=G.aiTurn;
+  aiTid=setTimeout(()=>{aiTid=null;runAI(ai);},ai==='ai1'?900:1500);
+}
+function runAI(ai){
+  const hand=[...G.hands[ai]],sum=hs(hand);
+  if(sum<=5){
+    const allHigher=Object.entries(G.hands).filter(([k])=>k!==ai).every(([,h])=>hs(h)>sum);
+    if(allHigher||sum<=2){
+      const sums={player:hs(G.hands.player),ai1:hs(G.hands.ai1),ai2:hs(G.hands.ai2)};
+      const assafed=Object.entries(sums).some(([k,s])=>k!==ai&&s<=sum);
+      let winner=ai,assafCaller=null;
+      if(assafed){
+        const cands=Object.entries(sums).filter(([k,s])=>k!==ai&&s<=sum).map(([k])=>k);
+        winner=cands.reduce((b,k)=>sums[k]<sums[b]?k:b,cands[0]);
+        assafCaller=ai;
+      }
+      const ns=calcScores(G.scores,sums,winner,assafCaller);
+      G={...G,scores:ns,phase:'round_end',
+        result:{winner,assafed,assafCaller,yanivCaller:ai,sums,ns},
+        aiLog:{...G.aiLog,[ai]:`Total is ${sum} — calling Yaniv!`},
+        log:[...G.log.slice(-4),`${ai==='ai1'?'AI 1':'AI 2'} calls Yaniv (${sum} pts)!${assafed?' ASSAF!':''}`]};
+      render();return;
+    }
+  }
+  const idx=bestAI(hand),dcards=idx.map(i=>hand[i]),newHand=hand.filter((_,i)=>!idx.includes(i));
+  let deck=[...G.deck];
+  if(!deck.length)deck=shuf(G.pile.slice(0,G.pile.length-1));
+  const drawn=deck.shift(),isLast=ai==='ai2';
+  G={...G,hands:{...G.hands,[ai]:[...newHand,drawn]},deck,
+    prevDiscard:dcards,discTop:dcards,pile:[...G.pile,...dcards],
+    phase:isLast?'p_discard':'ai_turn',aiTurn:isLast?'ai1':'ai2',
+    aiLog:{...G.aiLog,[ai]:aiReason(hand,idx)},
+    log:[...G.log.slice(-5),`${ai==='ai1'?'AI 1':'AI 2'} discarded ${dcards.map(c=>c.jk?'Joker':`${c.v}${c.s}`).join('+')} and drew.`]};
+  render();
+}
+
+// ── EVENTS ─────────────────────────────────────────────────────────────────
+document.getElementById('app').addEventListener('click',e=>{
+  const el=e.target.closest('[data-action]');
+  if(!el)return;
+  const a=el.dataset.action;
+  if(a==='tog'){
+    if(!G||G.phase!=='p_discard')return;
+    const i=+el.dataset.i;
+    sel=sel.includes(i)?sel.filter(x=>x!==i):[...sel,i];
+    render();
+  } else if(a==='discard'){
+    if(!G||!sel.length)return;
+    const cards=sel.map(i=>G.hands.player[i]);
+    if(!validDiscard(cards)){notify('❌ Not a valid discard! Try: single, pair, set, or same-suit run of 3+.');return;}
+    const newHand=G.hands.player.filter((_,i)=>!sel.includes(i));
+    G={...G,hands:{...G.hands,player:newHand},drawable:G.prevDiscard,prevDiscard:cards,discTop:cards,
+      pile:[...G.pile,...cards],phase:'p_draw',
+      log:[...G.log.slice(-5),`You discarded: ${cards.map(c=>c.jk?'Joker':`${c.v}${c.s}`).join(' + ')}. Now draw.`]};
+    sel=[];render();
+  } else if(a==='drawDeck'){
+    if(!G||G.phase!=='p_draw')return;
+    let deck=[...G.deck];
+    if(!deck.length)deck=shuf(G.pile.slice(0,G.pile.length-1));
+    const card=deck.shift();
+    G={...G,deck,hands:{...G.hands,player:[...G.hands.player,card]},phase:'ai_turn',aiTurn:'ai1',
+      log:[...G.log.slice(-5),'You drew from the deck.']};
+    render();
+  } else if(a==='drawDisc'){
+    if(!G||G.phase!=='p_draw'||!G.drawable?.length)return;
+    const card=G.drawable[0];
+    G={...G,hands:{...G.hands,player:[...G.hands.player,card]},phase:'ai_turn',aiTurn:'ai1',
+      log:[...G.log.slice(-5),`You drew ${card.jk?'Joker':`${card.v}${card.s}`} from the discard pile.`]};
+    render();
+  } else if(a==='yaniv'){
+    if(!G||G.phase!=='p_discard')return;
+    const sums={player:hs(G.hands.player),ai1:hs(G.hands.ai1),ai2:hs(G.hands.ai2)};
+    if(sums.player>7){notify(`❌ Can't call Yaniv with ${sums.player} pts — need 7 or less!`);return;}
+    const assafed=['ai1','ai2'].some(k=>sums[k]<=sums.player);
+    let winner='player',assafCaller=null;
+    if(assafed){
+      const cands=['ai1','ai2'].filter(k=>sums[k]<=sums.player);
+      winner=cands.reduce((b,k)=>sums[k]<sums[b]?k:b,cands[0]);
+      assafCaller='player';
+    }
+    const ns=calcScores(G.scores,sums,winner,assafCaller);
+    G={...G,scores:ns,phase:'round_end',result:{winner,assafed,assafCaller,sums,ns},
+      log:[...G.log.slice(-4),assafed
+        ?`😬 Assaf! You had ${sums.player} but ${winner==='ai1'?'AI 1':'AI 2'} had ${sums[winner]}. +30 penalty!`
+        :`🎉 Yaniv! You win the round with ${sums.player} pts!`]};
+    render();
+  } else if(a==='next'){
+    if(!G?.result)return;
+    const over=Object.values(G.result.ns).some(s=>s>=200);
+    deal(over?undefined:G.result.ns,over?1:G.round+1);
+    render();
+  } else if(a==='openR'){showRules=true;render();}
+    else if(a==='closeR'){showRules=false;render();}
+    else if(a==='newG'){deal();render();}
+});
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+deal();
+showRules=true;
+render();
+</script>
+</body>
+</html>
