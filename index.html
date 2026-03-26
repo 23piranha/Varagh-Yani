@@ -128,8 +128,9 @@ function cardH(c,isSel,tapIdx,down,sm){
   if(down)return`<div class="card down" style="width:${w}px;height:${h}px;font-size:${mfs}px;color:#93c5fd">🂠</div>`;
   const color=c.jk?'#7c3aed':isRed(c.s)?'#dc2626':'#111827';
   const lbl=c.jk?'★':esc(c.v),suit=c.jk?'🃏':esc(c.s);
-  const tap=tapIdx!==false?` tap" data-action="tog" data-i="${tapIdx}`:'"';
-  return`<div class="card${isSel?' sel':''}${tap=== '"'?'"':''} style="width:${w}px;height:${h}px;font-size:${fs}px;color:${color}"${tapIdx!==false?` data-action="tog" data-i="${tapIdx}"`:''}>
+  const tapAttrs=tapIdx!==false?` data-action="tog" data-i="${tapIdx}"` :'';
+  const cursor=tapIdx!==false?'pointer':'default';
+  return`<div class="card${isSel?' sel':''}" style="width:${w}px;height:${h}px;font-size:${fs}px;color:${color};cursor:${cursor}"${tapAttrs}>
     <span style="align-self:flex-start;font-weight:700;line-height:1">${lbl}</span>
     <span style="font-size:${mfs}px">${suit}</span>
     <span style="align-self:flex-end;font-weight:700;line-height:1;transform:rotate(180deg)">${lbl}</span>
@@ -256,7 +257,7 @@ function render(){
 
   // rules modal
   const rulesModal=showRules?`<div class="overlay" data-action="closeR">
-    <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal" data-action="noop">
       <h2 style="margin:0 0 16px;color:#fbbf24;font-size:20px">📖 How to Play Yaniv</h2>
       ${RULES.map(([t,b])=>`<div style="margin-bottom:13px"><div style="font-weight:700;color:#93c5fd;font-size:13px;margin-bottom:3px">${t}</div><div style="font-size:13px;line-height:1.6;opacity:.9">${b}</div></div>`).join('')}
       <button data-action="closeR" class="btn bb" style="margin-top:10px">Got it ✓</button>
@@ -378,6 +379,8 @@ document.getElementById('app').addEventListener('click',e=>{
     const over=Object.values(G.result.ns).some(s=>s>=200);
     deal(over?undefined:G.result.ns,over?1:G.round+1);
     render();
+  } else if(a==='noop'){
+    // absorbs clicks on modal body so overlay closeR doesn't fire
   } else if(a==='openR'){showRules=true;render();}
     else if(a==='closeR'){showRules=false;render();}
     else if(a==='newG'){deal();render();}
